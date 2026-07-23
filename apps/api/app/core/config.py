@@ -66,5 +66,14 @@ class Settings(BaseSettings):
     # rather than a whole corpus.
     reranker_model_name: str = "BAAI/bge-reranker-base"
 
+    # Generation (see app/services/generation_service.py). The only external,
+    # hosted model call in the whole retrieval pipeline; everything upstream
+    # (embedding, reranking) runs locally. `gemini-3.6-flash` is the current
+    # general-purpose flash-tier model, chosen for the same reason a flash
+    # model was chosen at every prior Gemini generation: it is priced and
+    # sized for high-volume, low-latency RAG generation rather than the
+    # heavier reasoning-focused pro tier this workload does not need.
+    gemini_model_name: str = "gemini-3.6-flash"
+
 
 settings = Settings()
