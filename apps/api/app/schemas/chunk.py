@@ -11,7 +11,7 @@ endpoint for exactly that purpose, not a general chunk browsing API.
 
 import uuid
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 
 class ChunkResponse(BaseModel):
@@ -19,10 +19,23 @@ class ChunkResponse(BaseModel):
     document it came from (by filename) and the passage's own text.
     """
 
+    model_config = ConfigDict(
+        from_attributes=True,
+        json_schema_extra={
+            "examples": [
+                {
+                    "id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                    "document_id": "6ba7b810-9dad-11d1-80b4-00c04fd430c8",
+                    "filename": "employee-handbook.pdf",
+                    "content": "Employees accrue fifteen days of paid time off per year.",
+                    "page_number": 12,
+                }
+            ]
+        },
+    )
+
     id: uuid.UUID
     document_id: uuid.UUID
     filename: str
     content: str
     page_number: int | None
-
-    model_config = {"from_attributes": True}

@@ -10,7 +10,47 @@ from app.api.conversations import router as conversations_router
 from app.api.documents import router as documents_router
 from app.core.config import settings
 
-app = FastAPI(title="Nexus API", version="0.1.0")
+app = FastAPI(
+    title="Nexus API",
+    version="0.1.0",
+    description=(
+        "Enterprise knowledge intelligence platform: upload documents, ask "
+        "questions over them, and get citation-backed answers from hybrid "
+        "(semantic + keyword) retrieval with reranking. This page is "
+        "generated directly from the running API, so it is always current "
+        "with the deployed behavior."
+    ),
+    openapi_tags=[
+        {
+            "name": "auth",
+            "description": (
+                "Organization/user bootstrap, login, and JWT session refresh."
+            ),
+        },
+        {
+            "name": "api-keys",
+            "description": "Issue and revoke programmatic API keys for an organization.",
+        },
+        {
+            "name": "documents",
+            "description": (
+                "Upload documents and inspect their ingestion status "
+                "(queued, processing, ready, failed)."
+            ),
+        },
+        {
+            "name": "conversations",
+            "description": (
+                "Multi-turn, citation-backed conversations over an organization's "
+                "ingested documents, including the streaming answer endpoint."
+            ),
+        },
+        {
+            "name": "chunks",
+            "description": "Resolve a citation back to the source chunk it references.",
+        },
+    ],
+)
 
 # The dashboard (apps/web) calls this API from the browser on a different
 # origin (different port in local dev), so a JSON POST like /v1/auth/login
