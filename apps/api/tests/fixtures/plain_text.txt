@@ -1,0 +1,9 @@
+Nexus Onboarding Guide.
+
+Welcome to the platform. This guide walks new organization admins through the first week of setup, from inviting teammates to uploading the first batch of documents into the corpus.
+
+Start by inviting at least one teammate from the organization settings page. Every invited teammate receives an email with a link to set their own password. Admins can revoke an invitation at any time before it is accepted, and can change a teammate's role after they join.
+
+Next, upload a handful of representative documents. Ingestion runs asynchronously, so the upload call returns immediately and the document's status moves from queued to processing to ready as the pipeline finishes parsing, chunking, embedding, and indexing it. A failed document will show a status of failed along with an error detail explaining what went wrong, most commonly an unparsable file or an unsupported format.
+
+Once at least one document reaches the ready status, start a conversation from the chat interface and ask a question grounded in that document. Every answer includes an inline citation back to the specific chunk of the specific document it was drawn from, so you can verify the answer against the source before trusting it.
