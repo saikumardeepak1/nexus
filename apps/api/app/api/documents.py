@@ -79,3 +79,25 @@ async def get_document(
     if document is None or document.organization_id != organization_id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
     return document
+
+
+@router.delete("/{document_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_document(
+    document_id: uuid.UUID,
+    organization_id: uuid.UUID = Depends(require_organization),
+    session: AsyncSession = Depends(get_session),
+) -> None:
+    """Delete a document: its raw file, its Postgres row (chunks and
+    citations cascade), and its Qdrant vectors (best-effort, see
+    ``ingestion_service.delete_document``). 404s (rather than 403s) for a
+    document that exists but belongs to another organization, matching
+    ``get_document``'s not-found-vs-not-yours behavior.
+    """
+    try:
+        await ingestion_service.delete_document(
+            organization_id=organization_id, document_id=document_id, session=session
+        )
+    except ingestion_service.DocumentNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Document not found"
+        ) from exc

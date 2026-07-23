@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { ApiError, apiFetch, login } from "./api-client";
+import { ApiError, apiFetch, deleteDocument, listDocuments, login, uploadDocument } from "./api-client";
 
 const originalFetch = global.fetch;
 
@@ -92,5 +92,53 @@ describe("api-client", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(window.localStorage.getItem("nexus.access_token")).toBeNull();
     expect(window.localStorage.getItem("nexus.refresh_token")).toBeNull();
+  });
+
+  it("listDocuments GETs /v1/documents", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ documents: [] }));
+    global.fetch = fetchMock;
+
+    const result = await listDocuments();
+
+    expect(result).toEqual({ documents: [] });
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toContain("/v1/documents");
+    expect(init.method ?? "GET").toBe("GET");
+  });
+
+  it("uploadDocument POSTs the file as multipart form data without forcing a JSON content-type", async () => {
+    const document = {
+      id: "doc-1",
+      organization_id: "org-1",
+      filename: "policy.pdf",
+      status: "queued",
+      page_count: null,
+      error_detail: null,
+      created_at: "2026-07-23T00:00:00Z",
+    };
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(document, 201));
+    global.fetch = fetchMock;
+
+    const file = new File(["hello"], "policy.pdf", { type: "application/pdf" });
+    const result = await uploadDocument(file);
+
+    expect(result).toEqual(document);
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toContain("/v1/documents");
+    expect(init.method).toBe("POST");
+    expect(init.body).toBeInstanceOf(FormData);
+    const headers = new Headers(init.headers);
+    expect(headers.get("Content-Type")).toBeNull();
+  });
+
+  it("deleteDocument DELETEs /v1/documents/{id}", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 204 }));
+    global.fetch = fetchMock;
+
+    await deleteDocument("doc-1");
+
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toContain("/v1/documents/doc-1");
+    expect(init.method).toBe("DELETE");
   });
 });

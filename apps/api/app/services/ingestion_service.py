@@ -11,6 +11,7 @@ filled in by later issues (see app/workers/jobs.py).
 
 from __future__ import annotations
 
+import logging
 import uuid
 from pathlib import Path
 
@@ -21,6 +22,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.models import Document
+from app.services import vector_store_service
+
+logger = logging.getLogger(__name__)
 
 # PRD non-goals restrict v1 ingestion to PDF and plain text (see
 # docs/PRD.md "Non-goals": "Multi-modal ingestion ... text and PDF only").
@@ -49,6 +53,10 @@ class UnsupportedFileTypeError(Exception):
 
 class FileTooLargeError(Exception):
     """Raised when the uploaded file exceeds MAX_UPLOAD_BYTES."""
+
+
+class DocumentNotFoundError(Exception):
+    """Raised when a document does not exist or belongs to another organization."""
 
 
 def _validate_filename(filename: str | None) -> str:
@@ -135,3 +143,56 @@ async def ingest_document(
     _enqueue_process_document(document.id)
 
     return document
+
+
+async def delete_document(
+    *,
+    organization_id: uuid.UUID,
+    document_id: uuid.UUID,
+    session: AsyncSession,
+) -> None:
+    """Delete a document owned by `organization_id`.
+
+    Raises `DocumentNotFoundError` for a document that doesn't exist or
+    belongs to another organization -- the route layer maps this to a 404,
+    the same "not found, not not-yours" distinction `get_document` makes.
+
+    Deletes, in order:
+    1. The raw file on disk (if it's still there; a document whose
+       ingestion job never got as far as expecting a fully-written file, or
+       one already cleaned up by a previous partial delete attempt, is not
+       treated as an error).
+    2. The `Document` row itself. Its `Chunk` rows (and their `Citation`
+       rows in turn) cascade at the database level via `ondelete="CASCADE"`
+       foreign keys (see app/models/chunk.py, app/models/citation.py), so
+       this one delete+commit is enough to remove every Postgres row that
+       belonged to the document.
+    3. The document's chunk vectors in Qdrant, via
+       `vector_store_service.delete_by_document`. This runs after the
+       Postgres commit and is treated as best-effort: if Qdrant is
+       unreachable or errors, the document is already fully gone from
+       Postgres and disk (the parts of "delete a document" a caller can
+       actually observe through this API), so the error is logged rather
+       than raised -- leaving a few orphaned Qdrant points is preferable to
+       reporting a failed delete for a document that in fact no longer
+       exists.
+    """
+    document = await session.get(Document, document_id)
+    if document is None or document.organization_id != organization_id:
+        raise DocumentNotFoundError(f"Document {document_id} not found")
+
+    storage_path = _storage_path(document.id)
+    storage_path.unlink(missing_ok=True)
+
+    await session.delete(document)
+    await session.commit()
+
+    try:
+        vector_store_service.delete_by_document(document_id)
+    except Exception:
+        logger.warning(
+            "Failed to delete Qdrant points for document %s; Postgres row and "
+            "file were already removed, leaving orphaned vector(s) behind.",
+            document_id,
+            exc_info=True,
+        )

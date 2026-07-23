@@ -1,5 +1,11 @@
 import { clearTokens, getAccessToken, getRefreshToken, storeTokenPair } from "./token-storage";
-import type { LoginRequest, RefreshRequest, TokenPairResponse } from "./types";
+import type {
+  DocumentListResponse,
+  DocumentResponse,
+  LoginRequest,
+  RefreshRequest,
+  TokenPairResponse,
+} from "./types";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "";
 
@@ -85,7 +91,11 @@ export async function apiFetch<T>(path: string, options: RequestOptions = {}): P
   const { skipAuth, _isRetry, headers: incomingHeaders, ...rest } = options;
 
   const headers = new Headers(incomingHeaders);
-  if (rest.body && !headers.has("Content-Type")) {
+  // FormData bodies (document upload) must not get a Content-Type set here:
+  // the browser needs to set its own `multipart/form-data; boundary=...`
+  // value, which is impossible to replicate by hand, so uploads would break
+  // silently if this fell through to the JSON default below.
+  if (rest.body && !(rest.body instanceof FormData) && !headers.has("Content-Type")) {
     headers.set("Content-Type", "application/json");
   }
 
@@ -128,6 +138,23 @@ export async function login(payload: LoginRequest): Promise<TokenPairResponse> {
 
 export function logout(): void {
   clearTokens();
+}
+
+export async function listDocuments(): Promise<DocumentListResponse> {
+  return apiFetch<DocumentListResponse>("/v1/documents");
+}
+
+export async function uploadDocument(file: File): Promise<DocumentResponse> {
+  const formData = new FormData();
+  formData.append("file", file);
+  return apiFetch<DocumentResponse>("/v1/documents", {
+    method: "POST",
+    body: formData,
+  });
+}
+
+export async function deleteDocument(documentId: string): Promise<void> {
+  await apiFetch<void>(`/v1/documents/${documentId}`, { method: "DELETE" });
 }
 
 export { getAccessToken, getStoredUser } from "./token-storage";
