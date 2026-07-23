@@ -8,6 +8,7 @@ actual job landed on the queue rather than that a function was called.
 import io
 import uuid
 from collections.abc import AsyncGenerator
+from pathlib import Path
 
 import pytest_asyncio
 from httpx import AsyncClient
@@ -18,7 +19,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
-from app.models import Document
+from app.models import Chunk, Document
 from app.services.ingestion_service import MAX_UPLOAD_BYTES
 
 
@@ -259,3 +260,107 @@ async def test_get_document_not_found(client: AsyncClient) -> None:
         f"/v1/documents/{uuid.uuid4()}", headers={"Authorization": f"Bearer {access_token}"}
     )
     assert response.status_code == 404
+
+
+async def test_delete_document_removes_row_file_and_chunks(
+    client: AsyncClient, db_session: AsyncSession
+) -> None:
+    access_token, _ = await _register_and_get_access_token(client)
+
+    upload_response = await client.post(
+        "/v1/documents",
+        headers={"Authorization": f"Bearer {access_token}"},
+        files={"file": ("notes.txt", b"hello world", "text/plain")},
+    )
+    assert upload_response.status_code == 201, upload_response.text
+    document_id = uuid.UUID(upload_response.json()["id"])
+
+    storage_path = Path(settings.documents_storage_path) / str(document_id)
+    assert storage_path.exists()
+
+    # A chunk row belonging to this document, so the cascade assertion below
+    # proves something real is actually being removed, not just an empty
+    # Document row with no children.
+    db_session.add(
+        Chunk(document_id=document_id, chunk_index=0, content="hello world chunk")
+    )
+    await db_session.commit()
+
+    delete_response = await client.delete(
+        f"/v1/documents/{document_id}", headers={"Authorization": f"Bearer {access_token}"}
+    )
+    assert delete_response.status_code == 204
+    assert delete_response.content == b""
+
+    document_result = await db_session.execute(select(Document).where(Document.id == document_id))
+    assert document_result.scalar_one_or_none() is None
+
+    chunk_result = await db_session.execute(
+        select(Chunk).where(Chunk.document_id == document_id)
+    )
+    assert chunk_result.scalar_one_or_none() is None
+
+    assert not storage_path.exists()
+
+    list_response = await client.get(
+        "/v1/documents", headers={"Authorization": f"Bearer {access_token}"}
+    )
+    assert list_response.status_code == 200
+    assert document_id not in {uuid.UUID(doc["id"]) for doc in list_response.json()["documents"]}
+
+
+async def test_delete_document_scoped_to_organization(client: AsyncClient) -> None:
+    token_a, _ = await _register_and_get_access_token(client, org_name="Org A")
+    token_b, _ = await _register_and_get_access_token(client, org_name="Org B")
+
+    upload_response = await client.post(
+        "/v1/documents",
+        headers={"Authorization": f"Bearer {token_a}"},
+        files={"file": ("secret.txt", b"org a secret", "text/plain")},
+    )
+    document_id = upload_response.json()["id"]
+
+    other_org_response = await client.delete(
+        f"/v1/documents/{document_id}", headers={"Authorization": f"Bearer {token_b}"}
+    )
+    assert other_org_response.status_code == 404
+
+    # Untouched: still fetchable by its own organization.
+    own_response = await client.get(
+        f"/v1/documents/{document_id}", headers={"Authorization": f"Bearer {token_a}"}
+    )
+    assert own_response.status_code == 200
+
+
+async def test_delete_document_not_found(client: AsyncClient) -> None:
+    access_token, _ = await _register_and_get_access_token(client)
+    response = await client.delete(
+        f"/v1/documents/{uuid.uuid4()}", headers={"Authorization": f"Bearer {access_token}"}
+    )
+    assert response.status_code == 404
+
+
+async def test_delete_document_second_delete_is_404_not_500(client: AsyncClient) -> None:
+    access_token, _ = await _register_and_get_access_token(client)
+
+    upload_response = await client.post(
+        "/v1/documents",
+        headers={"Authorization": f"Bearer {access_token}"},
+        files={"file": ("notes.txt", b"hello again", "text/plain")},
+    )
+    document_id = upload_response.json()["id"]
+
+    first_delete = await client.delete(
+        f"/v1/documents/{document_id}", headers={"Authorization": f"Bearer {access_token}"}
+    )
+    assert first_delete.status_code == 204
+
+    second_delete = await client.delete(
+        f"/v1/documents/{document_id}", headers={"Authorization": f"Bearer {access_token}"}
+    )
+    assert second_delete.status_code == 404
+
+
+async def test_delete_document_requires_auth(client: AsyncClient) -> None:
+    response = await client.delete(f"/v1/documents/{uuid.uuid4()}")
+    assert response.status_code == 401

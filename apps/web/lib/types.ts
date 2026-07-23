@@ -26,3 +26,23 @@ export interface TokenPairResponse {
   expires_in: number;
   user: UserResponse;
 }
+
+/**
+ * Request/response shapes mirrored from apps/api/app/schemas/document.py.
+ */
+
+export type DocumentStatus = "queued" | "processing" | "ready" | "failed";
+
+export interface DocumentResponse {
+  id: string;
+  organization_id: string;
+  filename: string;
+  status: DocumentStatus;
+  page_count: number | null;
+  error_detail: string | null;
+  created_at: string;
+}
+
+export interface DocumentListResponse {
+  documents: DocumentResponse[];
+}

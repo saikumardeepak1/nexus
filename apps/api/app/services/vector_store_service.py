@@ -277,3 +277,40 @@ def search(
             )
         )
     return results
+
+
+def delete_by_document(
+    document_id: uuid.UUID,
+    client: QdrantClient | None = None,
+    collection_name: str = COLLECTION_NAME,
+) -> None:
+    """Delete every point belonging to `document_id` from the collection.
+
+    Called when a `Document` is deleted from Postgres (see
+    `app.services.ingestion_service.delete_document`) so its chunks' vectors
+    do not linger in Qdrant as orphaned points once the source document and
+    its Postgres `Chunk` rows are gone. Deletes by payload filter rather
+    than by point id, since the caller (a document delete) does not
+    necessarily have the individual chunk ids on hand -- only the
+    `document_id` every point's payload was upserted with.
+
+    A no-op, not an error, if the collection does not exist yet (nothing
+    has ever been ingested) or has no points for this document (the
+    document was deleted before its ingestion job upserted anything).
+    """
+    client = client or get_client()
+    if not client.collection_exists(collection_name):
+        return
+    client.delete(
+        collection_name=collection_name,
+        points_selector=qmodels.FilterSelector(
+            filter=qmodels.Filter(
+                must=[
+                    qmodels.FieldCondition(
+                        key=_DOCUMENT_ID_KEY,
+                        match=qmodels.MatchValue(value=str(document_id)),
+                    )
+                ]
+            )
+        ),
+    )
