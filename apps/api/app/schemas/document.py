@@ -14,6 +14,7 @@ class DocumentResponse(BaseModel):
     filename: str
     status: str
     page_count: int | None
+    error_detail: str | None
     created_at: datetime
 
     model_config = {"from_attributes": True}
