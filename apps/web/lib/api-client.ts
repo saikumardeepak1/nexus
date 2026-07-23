@@ -1,8 +1,14 @@
 import { clearTokens, getAccessToken, getRefreshToken, storeTokenPair } from "./token-storage";
 import type {
+  ChunkResponse,
+  ConversationDetailResponse,
+  ConversationListResponse,
+  ConversationResponse,
   DocumentListResponse,
   DocumentResponse,
   LoginRequest,
+  MessageCreateRequest,
+  MessageDoneEvent,
   RefreshRequest,
   TokenPairResponse,
 } from "./types";
@@ -155,6 +161,129 @@ export async function uploadDocument(file: File): Promise<DocumentResponse> {
 
 export async function deleteDocument(documentId: string): Promise<void> {
   await apiFetch<void>(`/v1/documents/${documentId}`, { method: "DELETE" });
+}
+
+export async function listConversations(): Promise<ConversationListResponse> {
+  return apiFetch<ConversationListResponse>("/v1/conversations");
+}
+
+export async function createConversation(title?: string): Promise<ConversationResponse> {
+  return apiFetch<ConversationResponse>("/v1/conversations", {
+    method: "POST",
+    body: JSON.stringify({ title: title ?? null }),
+  });
+}
+
+export async function getConversation(
+  conversationId: string,
+): Promise<ConversationDetailResponse> {
+  return apiFetch<ConversationDetailResponse>(`/v1/conversations/${conversationId}`);
+}
+
+export async function getChunk(chunkId: string): Promise<ChunkResponse> {
+  return apiFetch<ChunkResponse>(`/v1/chunks/${chunkId}`);
+}
+
+export interface StreamMessageHandlers {
+  /** Called once per `event: delta` frame, in arrival order, with just that
+   * frame's incremental text (not the accumulated total) -- the caller
+   * appends it to whatever it is already showing. */
+  onDelta: (text: string) => void;
+  /** Called exactly once, when the terminal `event: done` frame arrives. */
+  onDone: (data: MessageDoneEvent) => void;
+}
+
+function parseSseEvent(rawEvent: string): { event: string; data: string } {
+  let event = "";
+  let data = "";
+  for (const line of rawEvent.split("\n")) {
+    if (line.startsWith("event: ")) {
+      event = line.slice("event: ".length);
+    } else if (line.startsWith("data: ")) {
+      data = line.slice("data: ".length);
+    }
+  }
+  return { event, data };
+}
+
+/**
+ * POST /v1/conversations/{id}/messages and consume its real SSE stream,
+ * forwarding each `event: delta` frame to `handlers.onDelta` the moment it
+ * is decoded (not buffered until the stream ends) and finalizing via
+ * `handlers.onDone` on the terminal `event: done` frame.
+ *
+ * A manual `fetch` + `ReadableStream` reader, not the browser's
+ * `EventSource` API: `EventSource` only issues GET requests and cannot
+ * attach a custom `Authorization` header, both of which this endpoint
+ * requires (a POST with a JSON body, session-JWT authenticated). A raw
+ * fetch reader is the practical way to get genuine incremental SSE
+ * consumption under those two constraints.
+ */
+export async function streamMessage(
+  conversationId: string,
+  content: string,
+  handlers: StreamMessageHandlers,
+  options: { signal?: AbortSignal } = {},
+): Promise<void> {
+  await streamMessageAttempt(conversationId, content, handlers, options, false);
+}
+
+async function streamMessageAttempt(
+  conversationId: string,
+  content: string,
+  handlers: StreamMessageHandlers,
+  options: { signal?: AbortSignal },
+  isRetry: boolean,
+): Promise<void> {
+  const headers = new Headers({ "Content-Type": "application/json" });
+  const accessToken = getAccessToken();
+  if (accessToken) headers.set("Authorization", `Bearer ${accessToken}`);
+
+  const response = await fetch(`${API_URL}/v1/conversations/${conversationId}/messages`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ content } satisfies MessageCreateRequest),
+    signal: options.signal,
+  });
+
+  if (response.status === 401 && !isRetry) {
+    const refreshed = await refreshAccessToken();
+    if (refreshed) {
+      return streamMessageAttempt(conversationId, content, handlers, options, true);
+    }
+    clearTokens();
+    throw new ApiError("Your session has expired. Please sign in again.", 401);
+  }
+
+  if (!response.ok || !response.body) {
+    throw new ApiError(await parseErrorMessage(response), response.status);
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+
+    let boundary = buffer.indexOf("\n\n");
+    while (boundary !== -1) {
+      const rawEvent = buffer.slice(0, boundary);
+      buffer = buffer.slice(boundary + 2);
+      const { event, data } = parseSseEvent(rawEvent);
+      if (event && data) {
+        const parsed: unknown = JSON.parse(data);
+        if (event === "delta") {
+          handlers.onDelta((parsed as { text: string }).text);
+        } else if (event === "done") {
+          handlers.onDone(parsed as MessageDoneEvent);
+        }
+      }
+      boundary = buffer.indexOf("\n\n");
+    }
+  }
 }
 
 export { getAccessToken, getStoredUser } from "./token-storage";
