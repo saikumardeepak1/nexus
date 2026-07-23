@@ -105,6 +105,14 @@ services:
   web:
     build:
       context: ../apps/web
+      # NEXT_PUBLIC_API_URL is inlined into the client bundle at build time
+      # by Next.js, so it must be passed as a build arg (not just a runtime
+      # environment variable below) or the browser bundle ships with it
+      # unset. Points at localhost:8000 (not the api:8000 Docker DNS name)
+      # because this value is read by client-side JS running in the user's
+      # browser on the host, which cannot resolve the compose network.
+      args:
+        NEXT_PUBLIC_API_URL: http://localhost:8000
     ports:
       - "3000:3000"
     environment:

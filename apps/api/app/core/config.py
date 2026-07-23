@@ -28,5 +28,10 @@ class Settings(BaseSettings):
     # from jwt_secret so rotating one does not silently rotate the other.
     api_key_pepper: str = "dev-api-key-pepper-change-me"
 
+    # Comma-separated list of origins allowed to call the API from a browser
+    # (see app/main.py CORSMiddleware setup). Defaults to the web app's dev
+    # origin from infra/docker-compose.yml.
+    cors_allowed_origins: str = "http://localhost:3000"
+
 
 settings = Settings()
