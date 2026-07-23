@@ -53,5 +53,11 @@ class Settings(BaseSettings):
     chunk_size: int = 700
     chunk_overlap: int = 100
 
+    # Embedding (see app/services/embedding_service.py). Run fully locally
+    # via sentence-transformers, no external API key needed. Same model is
+    # used for both document chunk embedding at ingestion time and query
+    # embedding at retrieval time, so the two live in the same vector space.
+    embedding_model_name: str = "BAAI/bge-small-en-v1.5"
+
 
 settings = Settings()
