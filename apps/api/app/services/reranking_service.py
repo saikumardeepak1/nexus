@@ -105,14 +105,7 @@ def rerank(
 
     model = _get_model()
     pairs = [(query, candidate.content) for candidate in candidates]
-    # sentence-transformers' installed CrossEncoder.predict signature types
-    # its argument against a large multi-modal (text/image/audio/video) pair
-    # union to support inputs this module never passes; mypy's list
-    # invariance then can't match our plain list[tuple[str, str]] against
-    # that union even though every element is a valid member of it. This is
-    # a typing-only mismatch (verified against real model output in
-    # tests/test_reranking_service.py), not a real bug.
-    scores = model.predict(pairs)  # type: ignore[arg-type]
+    scores = model.predict(pairs)
 
     scored = [
         replace(candidate, relevance_score=float(score))
