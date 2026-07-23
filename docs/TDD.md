@@ -35,7 +35,7 @@ nexus/
 ## 3. Backend design
 
 ### 3.1 Tech stack
-Python 3.12, FastAPI, SQLAlchemy 2.0 (async engine, asyncpg driver), Alembic, Pydantic v2, RQ + Redis for background jobs, `passlib`/Argon2 for password hashing, `python-jose` for JWT, `qdrant-client` for vector storage, `sentence-transformers` for local embedding/reranking, `langgraph` for RAG orchestration, `google-genai` for Gemini generation, `pypdf` for PDF parsing.
+Python 3.12, FastAPI, SQLAlchemy 2.0 (async engine, asyncpg driver), Alembic, Pydantic v2, RQ + Redis for background jobs, `argon2-cffi` for password hashing, `PyJWT` for JWT, `qdrant-client` for vector storage, `sentence-transformers` for local embedding/reranking, `langgraph` for RAG orchestration, `google-genai` for Gemini generation, `pypdf` for PDF parsing.
 
 ### 3.2 Services layered under `app/services/`
 - `ingestion_service`: validates and persists uploaded documents, enqueues a `process_document` job.
@@ -58,7 +58,9 @@ A LangGraph `StateGraph` with three nodes: `retrieve` (calls `hybrid_search_serv
 - `POST /v1/conversations` — start a conversation.
 - `POST /v1/conversations/{id}/messages` — send a message, streams the generated answer (SSE) with citations.
 - `GET /v1/conversations`, `GET /v1/conversations/{id}` — conversation history.
+- `POST /v1/auth/register` - bootstraps a new organization plus its first (admin) user, returns a token pair.
 - `POST /v1/auth/login`, `POST /v1/auth/refresh` — JWT session auth for dashboard users.
+- `POST /v1/api-keys`, `DELETE /v1/api-keys/{id}` - issue (raw key shown once) or revoke an API key, JWT session authenticated.
 - `GET /health` — unauthenticated liveness check.
 
 ### 3.5 Async processing
@@ -69,7 +71,9 @@ Reuses Helios's two-scheme design for consistency across the lab:
 - `require_api_key`: reads `Authorization: Bearer nxs_live_...`, looks up the hashed key, resolves to an `Organization`. Available for programmatic document upload.
 - `require_session`: reads a JWT from `Authorization: Bearer <jwt>`, resolves to a `User` scoped to an `Organization`. Used on dashboard routes.
 
-API keys are generated with an `nxs_live_` prefix, shown once at creation, stored as a salted hash. JWTs are short-lived access tokens with a refresh-token rotation flow. Every document, chunk, conversation, and message is scoped to an `organization_id`; all queries filter on it, so one org can never retrieve another org's corpus or conversations.
+API keys are generated with an `nxs_live_` prefix, shown once at creation, stored as a salted hash. JWTs are short-lived access tokens (15 minutes) with a refresh-token rotation flow (7-day opaque refresh tokens, persisted hashed in a `refresh_tokens` table, invalidated on every use so each token is redeemable exactly once). Every document, chunk, conversation, and message is scoped to an `organization_id`; all queries filter on it, so one org can never retrieve another org's corpus or conversations.
+
+Two different hashing strategies are used for two different needs: passwords are hashed with Argon2 (via `argon2-cffi`) since they are only ever verified against one known row; API keys and refresh tokens are hashed with a server-peppered HMAC-SHA256 instead, since they must be looked up directly by hash equality (the caller doesn't supply a username alongside the secret to narrow the search), which requires a deterministic hash rather than Argon2's per-hash random salt. `POST /v1/auth/register` is the only path that creates the first `Organization`/`User` pair for a new tenant.
 
 ## 4. Frontend design
 Next.js 14 App Router, TypeScript, Tailwind, shadcn/ui components, TanStack Query for server state. Chat UI consumes the SSE stream from `POST /v1/conversations/{id}/messages` and renders tokens incrementally, with citation markers resolved to a source panel showing the originating document and chunk text.
