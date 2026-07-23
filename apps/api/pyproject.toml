@@ -17,6 +17,9 @@ dependencies = [
     "alembic>=1.13,<1.14",
     "redis>=5.0,<6",
     "rq>=1.16,<2",
+    "argon2-cffi>=23.1,<24",
+    "pyjwt>=2.8,<3",
+    "email-validator>=2.1,<3",
 ]
 
 [project.optional-dependencies]
@@ -39,6 +42,20 @@ target-version = "py312"
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
 
+[tool.ruff.lint.flake8-bugbear]
+# FastAPI's dependency-injection idiom is `param: T = Depends(...)` (and the
+# same for Header/Query/Path/Body/Cookie) -- these calls are meant to be
+# evaluated once per parameter default, not treated as a mutable-default
+# footgun, so they're exempted from B008 rather than rewritten per call site.
+extend-immutable-calls = [
+    "fastapi.Depends",
+    "fastapi.Header",
+    "fastapi.Query",
+    "fastapi.Path",
+    "fastapi.Body",
+    "fastapi.Cookie",
+]
+
 [tool.mypy]
 python_version = "3.12"
 strict = true
@@ -47,3 +64,13 @@ ignore_missing_imports = true
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+
+[tool.coverage.run]
+# SQLAlchemy's async engine bridges its traditionally-sync Core/ORM
+# internals into asyncio via greenlet (see sqlalchemy.util.concurrency).
+# Without telling coverage.py about that, its default sys.settrace-based
+# tracer silently stops recording lines once execution crosses a greenlet
+# switch (e.g. right after any `await session.execute(...)` /
+# `await session.flush()` / `await session.commit()`), which under-reports
+# coverage for every route and dependency that touches the database.
+concurrency = ["greenlet", "thread"]

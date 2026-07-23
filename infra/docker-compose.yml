@@ -56,7 +56,8 @@ services:
       DATABASE_URL: postgresql+asyncpg://nexus:nexus@postgres:5432/nexus
       REDIS_URL: redis://redis:6379/0
       QDRANT_URL: http://qdrant:6333
-      JWT_SECRET: ${JWT_SECRET:-dev-secret-change-me}
+      JWT_SECRET: ${JWT_SECRET:-dev-secret-change-me-32-bytes-min}
+      API_KEY_PEPPER: ${API_KEY_PEPPER:-dev-api-key-pepper-change-me}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
     depends_on:
       postgres:
@@ -88,7 +89,8 @@ services:
       DATABASE_URL: postgresql+asyncpg://nexus:nexus@postgres:5432/nexus
       REDIS_URL: redis://redis:6379/0
       QDRANT_URL: http://qdrant:6333
-      JWT_SECRET: ${JWT_SECRET:-dev-secret-change-me}
+      JWT_SECRET: ${JWT_SECRET:-dev-secret-change-me-32-bytes-min}
+      API_KEY_PEPPER: ${API_KEY_PEPPER:-dev-api-key-pepper-change-me}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
     depends_on:
       postgres:

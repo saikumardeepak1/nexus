@@ -2,7 +2,13 @@
 
 from fastapi import FastAPI
 
+from app.api.api_keys import router as api_keys_router
+from app.api.auth import router as auth_router
+
 app = FastAPI(title="Nexus API", version="0.1.0")
+
+app.include_router(auth_router)
+app.include_router(api_keys_router)
 
 
 @app.get("/health")
