@@ -3,9 +3,9 @@
 Runs migrations with an async SQLAlchemy engine so we can reuse the same
 asyncpg-based DATABASE_URL the application uses at runtime, instead of
 maintaining a second, sync-driver connection string just for migrations.
-No models are defined yet (see docs/ROADMAP.md, Milestone 1: "Database
-schema design"), so target_metadata is None and this currently applies an
-empty migration set.
+target_metadata points at app.models.Base.metadata so that
+`alembic revision --autogenerate` can diff the real ORM models against the
+database.
 """
 
 import asyncio
@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from alembic import context
 from app.core.config import settings
+from app.models import Base
 
 config = context.config
 
@@ -25,7 +26,7 @@ if config.config_file_name is not None:
 
 config.set_main_option("sqlalchemy.url", settings.database_url)
 
-target_metadata = None
+target_metadata = Base.metadata
 
 
 def run_migrations_offline() -> None:
