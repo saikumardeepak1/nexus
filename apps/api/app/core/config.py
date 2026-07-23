@@ -59,5 +59,12 @@ class Settings(BaseSettings):
     # embedding at retrieval time, so the two live in the same vector space.
     embedding_model_name: str = "BAAI/bge-small-en-v1.5"
 
+    # Reranking (see app/services/reranking_service.py). A cross-encoder,
+    # not the bi-encoder used for embeddings: it scores a (query, passage)
+    # pair jointly, which is more accurate than comparing separately-embedded
+    # vectors but only feasible against a small hybrid-search candidate set
+    # rather than a whole corpus.
+    reranker_model_name: str = "BAAI/bge-reranker-base"
+
 
 settings = Settings()
