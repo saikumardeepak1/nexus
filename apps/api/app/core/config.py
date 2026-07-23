@@ -75,5 +75,15 @@ class Settings(BaseSettings):
     # heavier reasoning-focused pro tier this workload does not need.
     gemini_model_name: str = "gemini-3.6-flash"
 
+    # Conversation memory (see docs/TDD.md section 3.3 and app/api/conversations.py).
+    # How many of a conversation's most recent messages to load as history
+    # before running the RAG pipeline for a new message. Windowed rather than
+    # summarized for v1 (see docs/TDD.md section 10): simple, and sufficient
+    # for typical multi-turn usage. 10 messages is 5 user/assistant turns,
+    # enough context for the kind of short follow-up questions ("what about
+    # for the EU region?") the conversation memory feature exists for, without
+    # unbounded prompt growth in a long-running conversation.
+    conversation_history_window: int = 10
+
 
 settings = Settings()
