@@ -160,7 +160,20 @@ async def test_protected_route_rejects_missing_authorization(client: AsyncClient
 async def test_protected_route_rejects_tampered_access_token(client: AsyncClient) -> None:
     registered = await _register(client)
     token = registered["access_token"]
-    tampered = token[:-1] + ("x" if token[-1] != "x" else "y")
+    header_b64, payload_b64, signature_b64 = token.split(".")
+
+    # Flip a character in the middle of the payload rather than the tail of
+    # the signature: the trailing base64 character of the signature carries
+    # unused padding bits, so flipping it occasionally decodes to the exact
+    # same signature bytes and leaves the token still valid, making this
+    # test flaky. A mid-payload character sits in a full 4-char base64
+    # group with no unused bits, so changing it always changes the signed
+    # content and therefore always invalidates the signature.
+    middle = len(payload_b64) // 2
+    original_char = payload_b64[middle]
+    flipped_char = "x" if original_char != "x" else "y"
+    tampered_payload = payload_b64[:middle] + flipped_char + payload_b64[middle + 1 :]
+    tampered = f"{header_b64}.{tampered_payload}.{signature_b64}"
 
     response = await client.post(
         "/v1/api-keys", headers={"Authorization": f"Bearer {tampered}"}

@@ -78,9 +78,20 @@ def test_create_and_decode_access_token_round_trips() -> None:
 
 def test_decode_access_token_rejects_tampered_signature() -> None:
     token = auth_service.create_access_token(user_id=uuid.uuid4(), organization_id=uuid.uuid4())
-    last_char = token[-1]
-    flipped_char = "x" if last_char != "x" else "y"
-    tampered = token[:-1] + flipped_char
+    header_b64, payload_b64, signature_b64 = token.split(".")
+
+    # Flip a character in the middle of the payload rather than the tail of
+    # the signature. The trailing base64 character of the signature carries
+    # unused padding bits, so flipping it occasionally decodes to the exact
+    # same signature bytes, leaving the token still valid and making this
+    # test flaky. A mid-payload character sits in a full 4-char base64
+    # group with no unused bits, so changing it always changes the signed
+    # content and therefore always invalidates the signature.
+    middle = len(payload_b64) // 2
+    original_char = payload_b64[middle]
+    flipped_char = "x" if original_char != "x" else "y"
+    tampered_payload = payload_b64[:middle] + flipped_char + payload_b64[middle + 1 :]
+    tampered = f"{header_b64}.{tampered_payload}.{signature_b64}"
 
     with pytest.raises(auth_service.InvalidTokenError):
         auth_service.decode_access_token(tampered)
