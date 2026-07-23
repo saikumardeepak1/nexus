@@ -30,6 +30,9 @@ build/
 *.pt
 *.safetensors
 
+# Local document storage (see apps/api/app/core/config.py documents_storage_path)
+.data/
+
 # Env
 .env
 .env.local

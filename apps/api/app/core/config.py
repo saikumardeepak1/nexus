@@ -33,5 +33,14 @@ class Settings(BaseSettings):
     # origin from infra/docker-compose.yml.
     cors_allowed_origins: str = "http://localhost:3000"
 
+    # Local filesystem directory raw uploaded documents are written to (see
+    # app/services/ingestion_service.py). Relative by default so running the
+    # API/tests directly on a host (outside Docker) just uses a directory
+    # under the current working directory. infra/docker-compose.yml
+    # overrides this to /data/documents, backed by a named volume shared
+    # between the api and worker containers so the worker can read what the
+    # api wrote.
+    documents_storage_path: str = "./.data/documents"
+
 
 settings = Settings()

@@ -20,6 +20,7 @@ dependencies = [
     "argon2-cffi>=23.1,<24",
     "pyjwt>=2.8,<3",
     "email-validator>=2.1,<3",
+    "python-multipart>=0.0.9,<0.1",
 ]
 
 [project.optional-dependencies]
@@ -54,6 +55,7 @@ extend-immutable-calls = [
     "fastapi.Path",
     "fastapi.Body",
     "fastapi.Cookie",
+    "fastapi.File",
 ]
 
 [tool.mypy]
