@@ -9,6 +9,14 @@ from app.api.chunks import router as chunks_router
 from app.api.conversations import router as conversations_router
 from app.api.documents import router as documents_router
 from app.core.config import settings
+from app.core.logging import configure_logging
+from app.core.middleware import CorrelationIdMiddleware
+
+# Configured before the FastAPI app is constructed so every log line emitted
+# during app setup, and every log line emitted by any route handler or
+# service afterward, is JSON with a correlation id when one is set (see
+# app/core/logging.py and docs/TDD.md section 8).
+configure_logging()
 
 app = FastAPI(
     title="Nexus API",
@@ -65,6 +73,15 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Added after CORSMiddleware: Starlette's add_middleware makes whichever
+# middleware was added most recently the outermost layer, so
+# CorrelationIdMiddleware wraps CORSMiddleware rather than the other way
+# around. That puts it as early as possible in the request's life, before
+# every other layer this app has, so the correlation id is already set by
+# the time any route handler or service runs, and every log line the
+# request produces anywhere downstream carries it.
+app.add_middleware(CorrelationIdMiddleware)
 
 app.include_router(auth_router)
 app.include_router(api_keys_router)
