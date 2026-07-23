@@ -54,6 +54,7 @@ import uuid
 from collections.abc import AsyncGenerator
 from pathlib import Path
 
+import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 from qdrant_client.http import models as qmodels
@@ -68,6 +69,7 @@ from app.models import Chunk, Document
 from app.services import vector_store_service
 from app.services.chunking_service import chunk_document
 from app.services.embedding_service import embed_query
+from app.workers import jobs
 from app.workers.jobs import process_document
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
@@ -305,3 +307,81 @@ async def test_process_document_missing_document_returns_cleanly() -> None:
     """
     missing_id = str(uuid.uuid4())
     await _cross_loop_call(process_document, missing_id)
+
+
+async def test_mark_failed_returns_cleanly_when_document_already_gone() -> None:
+    """`_mark_failed` is called from `_process_document_async`'s own except
+    blocks, potentially after the document row was deleted out from under
+    the job by a concurrent delete request. It must return quietly (no
+    document to flip to `status="failed"`, and nothing to raise about)
+    rather than assume the row it just tried to look up still exists.
+    """
+    missing_id = uuid.uuid4()
+    await jobs._mark_failed(missing_id, RuntimeError("simulated failure"))
+
+    async with async_session_factory() as session:
+        document = await session.get(Document, missing_id)
+        assert document is None
+
+
+async def test_process_document_marks_failed_when_mark_ready_raises(
+    real_client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Parsing and embedding can succeed while the later Qdrant-indexing
+    phase still fails (e.g. Qdrant unreachable mid-job) -- `_mark_ready`
+    raising must be caught the same way a parse/embedding failure is, not
+    left to crash the job or leave the document stuck in `status="processing"`.
+    Simulated by monkeypatching `vector_store_service.ensure_collection`
+    (the first Qdrant call `_mark_ready` makes) to raise.
+    """
+    access_token, _ = await _register_and_get_access_token(
+        real_client, org_name="Indexing Failure Corp"
+    )
+
+    upload_response = await real_client.post(
+        "/v1/documents",
+        headers={"Authorization": f"Bearer {access_token}"},
+        files={"file": ("notes.txt", b"hello world, this indexes fine.", "text/plain")},
+    )
+    assert upload_response.status_code == 201, upload_response.text
+    document_id = uuid.UUID(upload_response.json()["id"])
+
+    def _boom(*_args: object, **_kwargs: object) -> None:
+        raise RuntimeError("simulated Qdrant outage during indexing")
+
+    monkeypatch.setattr(vector_store_service, "ensure_collection", _boom)
+
+    try:
+        await _cross_loop_call(process_document, str(document_id))
+
+        async with async_session_factory() as session:
+            document = await session.get(Document, document_id)
+            assert document is not None
+            assert document.status == "failed"
+            assert document.error_detail
+            assert "simulated Qdrant outage" in document.error_detail
+
+            # The failed transaction inside _mark_ready never committed, so
+            # no chunk rows were left behind either.
+            result = await session.execute(select(Chunk).where(Chunk.document_id == document_id))
+            assert result.scalars().all() == []
+    finally:
+        async with async_session_factory() as session:
+            document = await session.get(Document, document_id)
+            if document is not None:
+                await session.delete(document)
+                await session.commit()
+
+
+def test_process_document_outer_exception_is_caught_and_logged() -> None:
+    """`process_document`'s outer `try`/`except` is a last-resort safety net
+    for a crash outside the pipeline's own error handling (see its
+    docstring): everything inside `_process_document_async` after
+    `uuid.UUID(document_id)` has its own try/except, but that first line
+    itself does not, so a malformed `document_id` (e.g. queue corruption, or
+    a bug in whatever enqueued the job) raises `ValueError` before any of
+    the pipeline's own error handling ever runs -- this is the real,
+    reachable case the outer safety net exists for, not a synthetic one.
+    """
+    # Must not raise -- RQ job bodies must never propagate an exception.
+    process_document("this-is-not-a-valid-uuid")

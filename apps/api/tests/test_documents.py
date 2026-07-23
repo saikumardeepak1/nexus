@@ -10,6 +10,7 @@ import uuid
 from collections.abc import AsyncGenerator
 from pathlib import Path
 
+import pytest
 import pytest_asyncio
 from httpx import AsyncClient
 from redis import Redis
@@ -20,7 +21,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.models import Chunk, Document
-from app.services.ingestion_service import MAX_UPLOAD_BYTES
+from app.services import vector_store_service
+from app.services.ingestion_service import (
+    MAX_UPLOAD_BYTES,
+    UnsupportedFileTypeError,
+    _validate_filename,
+)
 
 
 def _minimal_pdf_bytes() -> bytes:
@@ -364,3 +370,49 @@ async def test_delete_document_second_delete_is_404_not_500(client: AsyncClient)
 async def test_delete_document_requires_auth(client: AsyncClient) -> None:
     response = await client.delete(f"/v1/documents/{uuid.uuid4()}")
     assert response.status_code == 401
+
+
+def test_validate_filename_rejects_missing_filename() -> None:
+    """A multipart upload always carries a filename in practice (the route
+    layer's `UploadFile` requires one), but `_validate_filename` is a
+    general-purpose helper whose own `None`/empty-string guard is worth
+    pinning directly rather than only indirectly through the route.
+    """
+    with pytest.raises(UnsupportedFileTypeError):
+        _validate_filename(None)
+    with pytest.raises(UnsupportedFileTypeError):
+        _validate_filename("")
+
+
+async def test_delete_document_survives_qdrant_deletion_failure(
+    client: AsyncClient, db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`delete_document`'s Qdrant cleanup is documented as best-effort: if it
+    raises (Qdrant unreachable, network blip, whatever), the already-committed
+    Postgres delete must still be reported as a success (204), not surfaced
+    as a 500 -- the row and file are genuinely gone by that point, so an
+    orphaned Qdrant point is the acceptable failure mode, not a broken
+    delete response.
+    """
+    access_token, _ = await _register_and_get_access_token(client, org_name="Qdrant Flaky Corp")
+
+    upload_response = await client.post(
+        "/v1/documents",
+        headers={"Authorization": f"Bearer {access_token}"},
+        files={"file": ("notes.txt", b"hello world", "text/plain")},
+    )
+    assert upload_response.status_code == 201, upload_response.text
+    document_id = uuid.UUID(upload_response.json()["id"])
+
+    def _boom(*_args: object, **_kwargs: object) -> None:
+        raise RuntimeError("simulated Qdrant outage")
+
+    monkeypatch.setattr(vector_store_service, "delete_by_document", _boom)
+
+    delete_response = await client.delete(
+        f"/v1/documents/{document_id}", headers={"Authorization": f"Bearer {access_token}"}
+    )
+    assert delete_response.status_code == 204
+
+    document_result = await db_session.execute(select(Document).where(Document.id == document_id))
+    assert document_result.scalar_one_or_none() is None

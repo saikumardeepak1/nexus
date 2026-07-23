@@ -84,3 +84,37 @@ testpaths = ["tests"]
 # `await session.flush()` / `await session.commit()`), which under-reports
 # coverage for every route and dependency that touches the database.
 concurrency = ["greenlet", "thread"]
+# app/workers/worker.py is the RQ process entrypoint: it constructs a Redis
+# connection, a Queue, and a Worker, then calls worker.work(), which blocks
+# forever polling for jobs. There is no meaningful assertion a test could
+# make about it beyond "the constructors were called with some arguments,
+# then wired to a mocked and never-called .work()" -- that would exercise
+# no real behavior, just restate the four lines of the function in mock
+# form (see issue #19's guidance against padding coverage with tautological
+# tests). Every module it delegates actual work to (chunking_service,
+# embedding_service, vector_store_service, app.workers.jobs.process_document)
+# is already covered by real tests elsewhere; this file is excluded from
+# the coverage measurement entirely rather than counted against fail_under
+# below.
+omit = ["app/workers/worker.py"]
+
+[tool.coverage.report]
+# Measured on this repo's actual test suite (real Postgres + Qdrant + real
+# embeddings, see docs/TDD.md section 6) as of issue #19: 100% of every
+# statement outside the omitted app/workers/worker.py entrypoint above.
+# fail_under is set a few points under that, not at the literal 100% just
+# achieved, for two reasons: first, the CI runner and local development can
+# differ in minor Python patch version, and coverage.py's line-level
+# tracing has occasionally shown small discrepancies across interpreter
+# versions for edge cases like multi-line statements or comprehensions --
+# a razor-thin 100% gate would be one such discrepancy away from a false-
+# positive CI failure unrelated to any real regression. Second, and more
+# importantly, a gate pinned to the exact number just measured invites
+# exactly the kind of tautological, gate-satisfying test issue #19 warns
+# against for every future change (chasing the last fractional percent
+# rather than testing something real). 98% is high enough to catch an
+# actual regression (a new module or a large new branch landing with no
+# tests at all) while leaving legitimate room for a future PR's own
+# defensive/hard-to-reach edge cases without every single one needing to be
+# a change to this threshold.
+fail_under = 98

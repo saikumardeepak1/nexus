@@ -34,6 +34,7 @@ from app.services import hybrid_search_service, vector_store_service
 from app.services.embedding_service import embed_documents
 from app.services.hybrid_search_service import (
     RRF_K,
+    _fetch_content_by_chunk_id,
     fuse_search_results,
     hybrid_search,
 )
@@ -190,6 +191,40 @@ async def test_lexical_and_dense_search_run_concurrently(
         f"expected concurrent execution (~{delay_seconds}s), took {elapsed:.3f}s "
         f"(sequential would be ~{delay_seconds * 2}s)"
     )
+
+
+# --- Edge cases: empty query / non-positive limit / empty content lookup ---
+
+
+async def test_hybrid_search_short_circuits_on_empty_or_whitespace_query(
+    db_session: AsyncSession,
+) -> None:
+    """An empty or whitespace-only query has nothing for either underlying
+    search to work with; `hybrid_search` must return an empty list without
+    ever calling `embed_query`/`lexical_search`/`vector_search`, rather than
+    sending a meaningless query through the whole pipeline.
+    """
+    assert await hybrid_search(db_session, uuid.uuid4(), "", limit=10) == []
+    assert await hybrid_search(db_session, uuid.uuid4(), "   ", limit=10) == []
+
+
+async def test_hybrid_search_short_circuits_on_non_positive_limit(
+    db_session: AsyncSession,
+) -> None:
+    assert await hybrid_search(db_session, uuid.uuid4(), "anything", limit=0) == []
+    assert await hybrid_search(db_session, uuid.uuid4(), "anything", limit=-1) == []
+
+
+async def test_fetch_content_by_chunk_id_returns_empty_dict_for_no_ids(
+    db_session: AsyncSession,
+) -> None:
+    """`_fetch_content_by_chunk_id` is only ever called by `hybrid_search`
+    with a non-empty `missing_ids` list in practice (see the `if
+    missing_ids:` guard around its call site), but its own empty-input
+    guard is a real, independently-reachable contract worth pinning
+    directly: no chunk_ids means no query should even be attempted.
+    """
+    assert await _fetch_content_by_chunk_id(db_session, uuid.uuid4(), []) == {}
 
 
 # --- Fixture-corpus eval tests -----------------------------------------------

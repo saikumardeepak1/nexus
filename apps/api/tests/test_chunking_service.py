@@ -223,6 +223,69 @@ def test_whitespace_only_text_document_raises_typed_exception() -> None:
         chunk_document(b"   \n\n   \n  ", "text/plain")
 
 
+def test_pdf_parse_failure_with_non_pdfreaderror_exception_is_wrapped(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """pypdf can raise exception types other than its own `PdfReadError` on
+    malformed input (a plain `ValueError`, for instance) -- both branches in
+    `_extract_pdf_pages`'s except clause must still surface as the typed
+    `UnparsableDocumentError`, not an unhandled traceback. Monkeypatches
+    `PdfReader` itself (rather than hunting for real bytes that happen to
+    trigger a non-`PdfReadError` exception from pypdf's internals) so the
+    non-`PdfReadError` branch is exercised deterministically.
+    """
+
+    def _boom(*_args: object, **_kwargs: object) -> None:
+        raise ValueError("simulated non-PdfReadError pypdf failure")
+
+    monkeypatch.setattr(chunking_service, "PdfReader", _boom)
+
+    with pytest.raises(UnparsableDocumentError):
+        chunk_document(b"irrelevant bytes", "application/pdf")
+
+
+def test_pdf_with_zero_pages_raises_typed_exception(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A `PdfReader` that parses without error but reports zero pages (an
+    edge case distinct from `test_pdf_with_no_text_layer_raises_typed_exception`
+    below, which has one page with no extractable text) must still raise a
+    typed error rather than silently returning zero chunks.
+    """
+
+    class _EmptyReader:
+        pages: list[object] = []
+
+    monkeypatch.setattr(chunking_service, "PdfReader", lambda *_a, **_k: _EmptyReader())
+
+    with pytest.raises(UnparsableDocumentError):
+        chunk_document(b"irrelevant bytes", "application/pdf")
+
+
+def test_hard_split_flushes_accumulated_words_before_oversized_word() -> None:
+    """`_hard_split`'s fallback path has two distinct branches for an
+    oversized word: one where nothing has been accumulated yet (already
+    covered by `test_chunk_size_respects_limit_with_a_single_oversized_word`
+    above, where the oversized word is the very first unit), and one where
+    some short words were already packed into `current` before the oversized
+    word is hit -- that accumulated text must be flushed as its own piece
+    before the oversized word is character-split, not silently dropped.
+    """
+    long_word = "x" * 500
+    # No sentence-ending punctuation, so this is one single "sentence" (per
+    # _split_into_sentences) that itself exceeds chunk_size and must be
+    # hard-split; "abc def" is short enough to accumulate into `current`
+    # before the oversized word is reached.
+    text = f"abc def {long_word}"
+    chunks = chunk_document(text.encode(), "text/plain", chunk_size=50, chunk_overlap=10)
+
+    assert len(chunks) > 1
+    for c in chunks:
+        assert len(c.content) <= 50
+    # The accumulated short words were flushed as their own chunk/piece,
+    # not merged into (or lost inside) the oversized word's character-split
+    # pieces.
+    assert any(c.content.strip() == "abc def" for c in chunks)
+
+
 def test_pdf_with_no_text_layer_raises_typed_exception() -> None:
     """A structurally valid PDF (real pypdf-writable page) with no
     extractable text -- e.g. a scanned/image-only page -- must raise
