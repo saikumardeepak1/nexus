@@ -3,7 +3,7 @@
 Two distinct hashing strategies are used deliberately:
 
 - **Passwords** are hashed with Argon2 (via ``argon2-cffi``, used directly
-  rather than through ``passlib`` — ``passlib`` is effectively unmaintained
+  rather than through ``passlib``: ``passlib`` is effectively unmaintained
   and its bcrypt backend has a well-documented compatibility break with
   recent bcrypt releases; using the Argon2 reference library directly
   avoids that whole class of problem). Argon2's per-hash random salt means
