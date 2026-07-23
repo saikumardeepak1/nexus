@@ -164,7 +164,10 @@ async def create_conversation(
     user: User = Depends(require_session),
     session: AsyncSession = Depends(get_session),
 ) -> Conversation:
-    """Start a new, empty conversation owned by the calling user."""
+    """Start a new, empty conversation owned by the calling user.
+
+    Requires a JWT session (``Authorization: Bearer <jwt>``).
+    """
     conversation = Conversation(
         organization_id=user.organization_id, user_id=user.id, title=body.title
     )
@@ -178,7 +181,10 @@ async def list_conversations(
     user: User = Depends(require_session),
     session: AsyncSession = Depends(get_session),
 ) -> ConversationListResponse:
-    """List every conversation owned by the calling user, newest first."""
+    """List every conversation owned by the calling user, newest first.
+
+    Requires a JWT session (``Authorization: Bearer <jwt>``).
+    """
     result = await session.execute(
         select(Conversation)
         .where(Conversation.organization_id == user.organization_id)
@@ -200,6 +206,10 @@ async def get_conversation(
     """Fetch one conversation plus its full message history (oldest first),
     each assistant message's citations inlined so a client can render
     sources without a second round trip.
+
+    Requires a JWT session (``Authorization: Bearer <jwt>``). 404s (rather
+    than 403s) for a conversation that exists but belongs to another user or
+    organization (see ``_get_owned_conversation``).
     """
     conversation = await _get_owned_conversation(conversation_id, user, session)
 
@@ -233,6 +243,13 @@ async def send_message(
     generated answer back over SSE (see the "Streaming decision" note in the
     module docstring), persisting the assistant's answer and its citations
     once generation completes.
+
+    Requires a JWT session (``Authorization: Bearer <jwt>``). 404s (rather
+    than 403s) for a conversation that exists but belongs to another user or
+    organization. Response is ``text/event-stream``, not JSON: zero or more
+    ``event: delta`` events followed by exactly one terminal ``event: done``
+    (see the module docstring's "Streaming decision" section for the exact
+    event shapes).
     """
     conversation = await _get_owned_conversation(conversation_id, user, session)
 

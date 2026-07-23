@@ -55,6 +55,10 @@ async def register(
     """Bootstrap a brand-new organization and its first (admin) user, and log
     that user in immediately. The only way a first Organization/User pair
     comes into existence in Nexus.
+
+    Unauthenticated: this is the entry point for a new tenant, so there is no
+    existing credential to authenticate with. Returns 409 if ``email`` is
+    already registered to any organization.
     """
     # Organization has no unique constraint to violate (unlike email below),
     # so no IntegrityError branch is needed here.
@@ -84,6 +88,14 @@ async def register(
 async def login(
     body: LoginRequest, session: AsyncSession = Depends(get_session)
 ) -> TokenPairResponse:
+    """Exchange an email/password pair for a new access + refresh token pair.
+
+    Unauthenticated (the credentials in the request body are the
+    authentication). Returns 401 for either an unknown email or a wrong
+    password, with an identical error message and status in both cases, so
+    a caller cannot use this endpoint to enumerate which emails are
+    registered.
+    """
     result = await session.execute(select(User).where(User.email == body.email))
     user = result.scalar_one_or_none()
 
@@ -106,6 +118,10 @@ async def refresh(
     presented refresh token is revoked as part of this call (rotation): it
     cannot be used a second time, whether by the legitimate client or by an
     attacker who intercepted it.
+
+    Unauthenticated (the refresh token in the request body is the
+    authentication). Returns 401 for a refresh token that is missing,
+    unknown, already revoked, or expired.
     """
     invalid_token = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired refresh token"

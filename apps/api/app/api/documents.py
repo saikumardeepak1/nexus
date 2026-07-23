@@ -32,6 +32,9 @@ async def upload_document(
     the raw file, persists a ``Document`` row with ``status="queued"``, and
     enqueues ``process_document`` -- all before this call returns (see
     issue #5's acceptance criteria).
+
+    Accepts either auth scheme (API key or JWT session). Returns 415 for an
+    unsupported file type and 413 for a file over the configured size limit.
     """
     try:
         return await ingestion_service.ingest_document(
@@ -52,7 +55,10 @@ async def list_documents(
     organization_id: uuid.UUID = Depends(require_organization),
     session: AsyncSession = Depends(get_session),
 ) -> DocumentListResponse:
-    """List every document owned by the caller's organization, newest first."""
+    """List every document owned by the caller's organization, newest first.
+
+    Accepts either auth scheme (API key or JWT session).
+    """
     result = await session.execute(
         select(Document)
         .where(Document.organization_id == organization_id)
@@ -74,6 +80,8 @@ async def get_document(
     403s) for a document that exists but belongs to another organization,
     so a caller cannot distinguish "not found" from "not yours" and probe
     for other orgs' document ids.
+
+    Accepts either auth scheme (API key or JWT session).
     """
     document = await session.get(Document, document_id)
     if document is None or document.organization_id != organization_id:
@@ -92,6 +100,8 @@ async def delete_document(
     ``ingestion_service.delete_document``). 404s (rather than 403s) for a
     document that exists but belongs to another organization, matching
     ``get_document``'s not-found-vs-not-yours behavior.
+
+    Accepts either auth scheme (API key or JWT session).
     """
     try:
         await ingestion_service.delete_document(

@@ -53,6 +53,8 @@ async def get_chunk(
     number. 404s (rather than 403s) for a chunk that exists but belongs to
     another organization's document, matching ``documents.py``'s
     not-found-vs-not-yours pattern.
+
+    Accepts either auth scheme (API key or JWT session).
     """
     result = await session.execute(
         select(Chunk, Document.filename)

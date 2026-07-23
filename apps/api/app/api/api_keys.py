@@ -25,6 +25,9 @@ async def create_api_key(
     """Generate a new API key for the caller's organization. The raw key is
     returned exactly once, in this response; only its hash is persisted, so
     it is never retrievable again after this call.
+
+    Requires a JWT session (``Authorization: Bearer <jwt>``); API keys
+    cannot be used to create other API keys.
     """
     generated = auth_service.generate_api_key()
     api_key = ApiKey(
@@ -53,6 +56,12 @@ async def revoke_api_key(
     """Revoke an API key belonging to the caller's organization. Scoped by
     organization_id so one org can never revoke (or even discover the
     existence of, via a distinguishable error) another org's key.
+
+    Requires a JWT session (``Authorization: Bearer <jwt>``). 404s (rather
+    than 403s) for a key that exists but belongs to another organization, so
+    a caller cannot distinguish "not found" from "not yours" and probe for
+    other orgs' key ids. Revoking an already-revoked key is a no-op that
+    still returns 204.
     """
     api_key = await session.get(ApiKey, api_key_id)
     if api_key is None or api_key.organization_id != current_user.organization_id:
