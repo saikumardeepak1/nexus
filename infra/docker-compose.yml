@@ -37,6 +37,16 @@ services:
       timeout: 5s
       retries: 5
 
+  migrate:
+    build:
+      context: ../apps/api
+    command: ["alembic", "upgrade", "head"]
+    environment:
+      DATABASE_URL: postgresql+asyncpg://nexus:nexus@postgres:5432/nexus
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   api:
     build:
       context: ../apps/api
@@ -55,6 +65,8 @@ services:
         condition: service_healthy
       qdrant:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     healthcheck:
       test:
         [
@@ -85,6 +97,8 @@ services:
         condition: service_healthy
       qdrant:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
 
   web:
     build:
