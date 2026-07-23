@@ -42,5 +42,16 @@ class Settings(BaseSettings):
     # api wrote.
     documents_storage_path: str = "./.data/documents"
 
+    # Chunking (see app/services/chunking_service.py). Sizes are in
+    # characters, not tokens: the local embedding model (BGE-small, 512
+    # token max sequence length) comfortably fits a 700-character chunk of
+    # English prose (roughly 120-150 tokens), leaving headroom before the
+    # model's limit even for dense text. 700/100 gives ~14% overlap, enough
+    # for a sentence or two of shared context between adjacent chunks
+    # without duplicating so much text that retrieval returns near-identical
+    # neighbors.
+    chunk_size: int = 700
+    chunk_overlap: int = 100
+
 
 settings = Settings()
