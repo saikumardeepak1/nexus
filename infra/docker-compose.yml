@@ -59,6 +59,9 @@ services:
       JWT_SECRET: ${JWT_SECRET:-dev-secret-change-me-32-bytes-min}
       API_KEY_PEPPER: ${API_KEY_PEPPER:-dev-api-key-pepper-change-me}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      DOCUMENTS_STORAGE_PATH: /data/documents
+    volumes:
+      - document_storage:/data/documents
     depends_on:
       postgres:
         condition: service_healthy
@@ -92,6 +95,9 @@ services:
       JWT_SECRET: ${JWT_SECRET:-dev-secret-change-me-32-bytes-min}
       API_KEY_PEPPER: ${API_KEY_PEPPER:-dev-api-key-pepper-change-me}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      DOCUMENTS_STORAGE_PATH: /data/documents
+    volumes:
+      - document_storage:/data/documents
     depends_on:
       postgres:
         condition: service_healthy
@@ -123,3 +129,4 @@ services:
 volumes:
   postgres_data:
   qdrant_data:
+  document_storage:

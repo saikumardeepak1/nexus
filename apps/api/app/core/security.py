@@ -11,6 +11,8 @@ Both are ordinary FastAPI dependencies (``Depends(require_api_key)`` /
 other, or (via a small wrapper) either.
 """
 
+import uuid
+
 from fastapi import Depends, Header, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -80,3 +82,24 @@ async def require_session(
     if user is None or user.organization_id != payload.organization_id:
         raise _UNAUTHORIZED
     return user
+
+
+async def require_organization(
+    authorization: str | None = Header(default=None),
+    session: AsyncSession = Depends(get_session),
+) -> uuid.UUID:
+    """Resolve either auth scheme to the caller's organization_id, for
+    routes where TDD.md 3.4 says either should work (e.g. document upload:
+    a dashboard user and a programmatic API-key client both need access).
+
+    Dispatches on the API key prefix (``nxs_live_``) rather than trying one
+    scheme and falling back on failure, so a malformed/expired API key
+    reports as an API-key auth failure rather than being mistaken for a
+    (also-invalid) JWT.
+    """
+    token = _extract_bearer_token(authorization)
+    if token.startswith(auth_service.API_KEY_PREFIX):
+        organization = await require_api_key(authorization=authorization, session=session)
+        return organization.id
+    user = await require_session(authorization=authorization, session=session)
+    return user.organization_id
