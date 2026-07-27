@@ -7,6 +7,7 @@ Every route is scoped to the caller's organization_id so one org can never
 see or fetch another org's documents.
 """
 
+import logging
 import uuid
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
@@ -18,6 +19,8 @@ from app.core.security import require_organization
 from app.models import Document
 from app.schemas.document import DocumentListResponse, DocumentResponse
 from app.services import ingestion_service
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/v1/documents", tags=["documents"])
 
@@ -36,6 +39,7 @@ async def upload_document(
     Accepts either auth scheme (API key or JWT session). Returns 415 for an
     unsupported file type and 413 for a file over the configured size limit.
     """
+    logger.info("upload_document request received", extra={"upload_filename": file.filename})
     try:
         return await ingestion_service.ingest_document(
             organization_id=organization_id, upload_file=file, session=session

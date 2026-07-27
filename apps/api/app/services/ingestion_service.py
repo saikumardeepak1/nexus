@@ -142,6 +142,11 @@ async def ingest_document(
 
     _enqueue_process_document(document.id)
 
+    logger.info(
+        "document ingested and queued for processing",
+        extra={"document_id": str(document.id)},
+    )
+
     return document
 
 

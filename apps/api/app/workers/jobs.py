@@ -41,6 +41,7 @@ from pathlib import Path
 
 from app.core.config import settings
 from app.core.db import async_session_factory
+from app.core.logging import correlation_id_var
 from app.models import Chunk, Document
 from app.services import chunking_service, vector_store_service
 from app.services.embedding_service import embed_documents
@@ -180,7 +181,17 @@ def process_document(document_id: str) -> None:
     RQ. The outer ``except`` below is a last-resort safety net for a truly
     unexpected crash (e.g. the database itself being unreachable) that
     happens outside the pipeline's own error handling.
+
+    Sets a ``job-<hex>`` id on ``correlation_id_var`` for the duration of the
+    job, the worker-side equivalent of ``CorrelationIdMiddleware`` on the API
+    side (see app/core/logging.py and app/core/middleware.py): every log line
+    the pipeline emits, including from the services it calls into, carries
+    the same id. The ``reset`` in ``finally`` runs whether the job succeeds,
+    is caught by ``_process_document_async``'s own error handling, or hits
+    the outer safety-net ``except`` below, so the id never leaks into
+    whatever job this same worker process picks up next.
     """
+    token = correlation_id_var.set(f"job-{uuid.uuid4().hex}")
     try:
         asyncio.run(_process_document_async(document_id))
     except Exception:  # noqa: BLE001 - job bodies must never raise, see docstring
@@ -188,3 +199,5 @@ def process_document(document_id: str) -> None:
             "process_document crashed outside its own error handling",
             extra={"document_id": document_id},
         )
+    finally:
+        correlation_id_var.reset(token)
