@@ -26,6 +26,7 @@ import pytest
 from app.services import vector_store_service
 from app.services.embedding_service import embed_documents, embed_query
 from app.services.vector_store_service import (
+    delete_by_document,
     ensure_collection,
     get_client,
     search,
@@ -256,3 +257,22 @@ def test_search_with_no_matching_org_returns_empty(collection_name: str) -> None
     )
 
     assert results == []
+
+
+# --- delete_by_document -------------------------------------------------------
+
+
+def test_delete_by_document_is_a_noop_when_collection_does_not_exist() -> None:
+    """A document can be deleted before its ingestion job ever created the
+    collection (e.g. the very first upload in a fresh environment fails
+    before `ensure_collection` runs); `delete_by_document` must treat a
+    missing collection as nothing to clean up, not an error. Uses a
+    randomly-named collection that is never created in this test (no
+    `collection_name` fixture involved -- there is nothing for its teardown
+    to drop).
+    """
+    never_created_collection = f"test_never_created_{uuid.uuid4().hex}"
+    assert not get_client().collection_exists(never_created_collection)
+
+    # Must not raise.
+    delete_by_document(uuid.uuid4(), collection_name=never_created_collection)

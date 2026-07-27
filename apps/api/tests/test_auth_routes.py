@@ -236,6 +236,36 @@ async def test_protected_route_rejects_malformed_authorization_header(
     assert response.status_code == 401
 
 
+async def test_refresh_rejected_when_backing_user_no_longer_resolves(
+    client: AsyncClient, db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Defense-in-depth: `refresh_tokens.user_id` has an `ON DELETE CASCADE`
+    foreign key to `users.id` (see app/models/refresh_token.py), so a
+    refresh-token row can never legitimately outlive the user it belongs to
+    in Postgres -- deleting a user always cascades away their refresh
+    tokens too. That makes the route's own `if user is None: raise
+    invalid_token` guard unreachable through any ordinary delete, but it is
+    still real code guarding a real (if DB-enforced-impossible) race: this
+    monkeypatches `session.get` to return `None` specifically for the
+    `User` lookup, simulating that race directly, rather than skip
+    exercising the line at all.
+    """
+    registered = await _register(client)
+    refresh_token = registered["refresh_token"]
+
+    original_get = db_session.get
+
+    async def _get_returns_none_for_user(entity: type, *args: object, **kwargs: object) -> object:
+        if entity is User:
+            return None
+        return await original_get(entity, *args, **kwargs)
+
+    monkeypatch.setattr(db_session, "get", _get_returns_none_for_user)
+
+    response = await client.post("/v1/auth/refresh", json={"refresh_token": refresh_token})
+    assert response.status_code == 401
+
+
 async def test_protected_route_rejects_token_for_a_deleted_user(
     client: AsyncClient, db_session: AsyncSession
 ) -> None:

@@ -129,6 +129,41 @@ async def test_revoked_api_key_is_rejected_by_require_api_key(
     assert exc_info.value.status_code == 401
 
 
+async def test_require_api_key_rejected_when_backing_organization_no_longer_resolves(
+    client: AsyncClient, db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Defense-in-depth: `api_keys.organization_id` has an `ON DELETE
+    CASCADE` foreign key to `organizations.id` (see app/models/api_key.py),
+    so an API key row can never legitimately outlive its organization in
+    Postgres. That makes `require_api_key`'s own `if organization is None:
+    raise _UNAUTHORIZED` guard unreachable through any ordinary delete, but
+    it is still real code guarding a real (if DB-enforced-impossible) race:
+    this monkeypatches `session.get` to return `None` specifically for the
+    `Organization` lookup, simulating that race directly, rather than skip
+    exercising the line at all.
+    """
+    access_token, _ = await _register_and_get_access_token(client)
+    create_response = await client.post(
+        "/v1/api-keys", headers={"Authorization": f"Bearer {access_token}"}
+    )
+    raw_key = create_response.json()["raw_key"]
+
+    original_get = db_session.get
+
+    async def _get_returns_none_for_organization(
+        entity: type, *args: object, **kwargs: object
+    ) -> object:
+        if entity is Organization:
+            return None
+        return await original_get(entity, *args, **kwargs)
+
+    monkeypatch.setattr(db_session, "get", _get_returns_none_for_organization)
+
+    with pytest.raises(HTTPException) as exc_info:
+        await require_api_key(authorization=f"Bearer {raw_key}", session=db_session)
+    assert exc_info.value.status_code == 401
+
+
 async def test_cannot_revoke_another_organizations_api_key(client: AsyncClient) -> None:
     access_token_a, _ = await _register_and_get_access_token(client)
     access_token_b, _ = await _register_and_get_access_token(client)
