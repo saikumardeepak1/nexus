@@ -1,10 +1,47 @@
 # Nexus
 
+[![CI](https://github.com/saikumardeepak1/nexus/actions/workflows/ci.yml/badge.svg)](https://github.com/saikumardeepak1/nexus/actions/workflows/ci.yml)
+[![Python 3.12](https://img.shields.io/badge/python-3.12-blue.svg)](https://www.python.org/)
+[![Tests](https://img.shields.io/badge/tests-191-brightgreen.svg)](#running-tests)
+[![Coverage gate](https://img.shields.io/badge/coverage%20gate-98%25-brightgreen.svg)](apps/api/pyproject.toml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-black.svg)](LICENSE)
+
 Enterprise Knowledge Intelligence Platform: hybrid retrieval (semantic + keyword) with reranking and citation-backed conversational answers over your own documents.
 
 ## Why Nexus
 
 Internal documentation is hard to search and impossible to have a conversation with. Nexus ingests your PDFs and text docs, indexes them with both dense (semantic) and lexical (keyword) search, reranks the combined candidates, and answers questions with citations back to the exact source passage, instead of a generic chatbot guessing.
+
+<!-- SCREENSHOT: add a chat UI screenshot showing an answer with inline citations here. -->
+
+## Architecture
+
+```mermaid
+graph TB
+    User["Employee / knowledge worker"] -->|"browser"| Web["Next.js dashboard + chat UI"]
+
+    subgraph Nexus["Nexus Platform"]
+        Web -->|"JWT session auth<br/>REST + streaming"| API["FastAPI API service"]
+        API -->|"upload document"| DB[(PostgreSQL)]
+        API -->|"enqueue process_document"| Redis[(Redis<br/>queue)]
+        Redis -->|"job dequeue"| Worker["RQ worker"]
+        Worker -->|"parse, chunk"| Worker
+        Worker -->|"embed (BGE-small, local)"| Worker
+        Worker -->|"upsert dense vectors"| Qdrant[(Qdrant<br/>vector store)]
+        Worker -->|"write chunks + tsvector"| DB
+        API -->|"hybrid query: dense"| Qdrant
+        API -->|"hybrid query: lexical FTS"| DB
+        API -->|"rerank candidates<br/>(BGE cross-encoder, local)"| API
+        API -->|"generate cited answer"| Gemini["Gemini API<br/>(external)"]
+        API -->|"read/write conversations, messages"| DB
+    end
+```
+
+Retrieval runs against both indexes on every query and fuses the two ranked lists with reciprocal rank fusion, because dense and lexical search fail in different places: embeddings miss exact identifiers and product names, keyword search misses paraphrase. A BGE cross-encoder then reranks the fused candidates before anything reaches the model, which is the step that decides answer quality more than the retrieval recall does.
+
+Embedding and reranking both run locally via `sentence-transformers` inside the API and worker containers, so ingestion and retrieval need no external API key. Gemini is only called for the final answer generation.
+
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for component responsibilities and the full request lifecycle.
 
 ## Documentation
 
@@ -16,7 +53,9 @@ Internal documentation is hard to search and impossible to have a conversation w
 
 ## Status
 
-Early development. See [Roadmap](docs/ROADMAP.md) and the [issue tracker](https://github.com/saikumardeepak1/nexus/issues) for current progress.
+v1 is feature complete. All 21 planned issues are closed and all 21 pull requests are merged across four milestones (Foundation, Document Ingestion and Retrieval, Conversational RAG, Platform Hardening). CI runs on every pull request and is green on main, with a 98% coverage gate enforced over 191 tests.
+
+Every feature was verified against a real running stack (Postgres, Redis, Qdrant, and real BGE embeddings) rather than mocks alone. See [Roadmap](docs/ROADMAP.md) for what is out of scope and the [issue tracker](https://github.com/saikumardeepak1/nexus/issues) for the full build history.
 
 ## Project structure
 
